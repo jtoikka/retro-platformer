@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>Hookshot</title>
+    <link rel="stylesheet" href="hookshot.css">
+  </head>
+  <body>
+    <canvas id="webGLCanvas" width=960px height=720px></canvas>
+
+    <script type="application/dart" src="hookshot.dart"></script>
+
+    <script src="packages/browser/dart.js"></script>
+    <script id="tile-vs" type=x-shader/x-vertex>
+        attribute vec2 position;
+        attribute vec2 uv;
+
+        uniform mat3 transformMat;
+
+        varying vec2 UV;
+
+        void main() {
+            vec3 transPos = transformMat * vec3((position.xy), 1.0);
+            gl_Position = vec4(transPos.xy, 0.0, 1.0);
+            UV = uv;
+        }
+    </script>
+    <script id="tile-fs" type="x-shader/x-fragment">
+        varying mediump vec2 UV;
+
+        uniform sampler2D sprite;
+        uniform sampler2D grilleTex;
+        uniform sampler2D scanlineTex;
+
+        uniform mediump vec4 baseColour;
+
+        mediump float luma(mediump vec3 rgb) {
+            return dot(rgb, vec3(0.2126, 0.7152, 0.0722));
+        }
+
+        void main() {
+            mediump vec4 colour = texture2D(sprite, UV) * baseColour;
+            mediump vec4 grille = texture2D(grilleTex, gl_FragCoord.xy / 3.0);
+            mediump vec4 scanline = texture2D(scanlineTex, gl_FragCoord.xy / 3.0);
+
+            mediump vec4 lineColour = vec4((scanline * grille * colour).rgb * (1.0 - 1.0 / exp(4.0 * luma(colour.rgb))), colour.a);
+
+            mediump vec4 pixelColour = (vec4(1.0, 1.0, 1.0, 1.0) - scanline) * colour * grille;
+            //gl_FragData[0] = colour;
+            gl_FragData[0] = pixelColour + lineColour;
+            //gl_FragData[0] = vec4(1.0, 0.0, 0.0, 1.0);
+        }
+    </script>
+    <script id="interpolatex-vs" type="x-shader/x-vertex">
+        attribute vec2 position;
+        attribute vec2 uv;
+
+        varying vec2 UV;
+
+        void main() {
+            gl_Position = vec4(position, 1.0, 1.0);
+            UV = uv;
+        }
+    </script>
+    <script id="interpolatex-fs" type="x-shader/x-fragment">
+        varying mediump vec2 UV;
+
+        uniform sampler2D screenTex;
+
+        const mediump float offset0 = 0.0;
+        const mediump float offset1 = 1.0;
+        const mediump float offset2 = 2.0;
+
+        const mediump float weight0 = 0.2957615963;
+        const mediump float weight1 = 0.2347461346;
+        const mediump float weight2 = 0.1173730673;
+
+        mediump float luma(mediump vec3 rgb) {
+            return rgb.g * 0.7152 + rgb.r * 0.2198;
+        }
+
+        const mediump float exposure = 1.2;
+
+        mediump float intensity(mediump vec3 rgb) {
+            mediump float m = max(rgb.r, max(rgb.g, rgb.b));
+            return 1.0 - exp(exposure * m);
+        }
+
+        mediump vec4 blur() {
+            mediump vec4 colour = vec4(0.0, 0.0, 0.0, 0.0);
+            mediump vec4 baseColour = texture2D(screenTex, UV + vec2(0.0, offset0 / 720.0));
+            mediump float lumaBase = luma(baseColour.xyz);
+            mediump vec4 offsetColour1 = texture2D(screenTex, UV + vec2(offset1 / 720.0, 0.0));
+            mediump vec4 offsetColour2 = texture2D(screenTex, UV + vec2(offset2 / 720.0, 0.0));
+            mediump vec4 offsetColour3 = texture2D(screenTex, UV - vec2(offset1 / 720.0, 0.0));
+            mediump vec4 offsetColour4 = texture2D(screenTex, UV - vec2(offset2 / 720.0, 0.0));
+
+            colour += baseColour * 0.75;
+            colour += (offsetColour1) * 0.25;
+            colour += (offsetColour3) * 0.25;
+            return colour;
+        }
+
+        void main() {
+            mediump vec4 colour = blur();
+            //colour = texture2D(screenTex, UV);
+            gl_FragColor = colour;
+        }
+    </script>
+    <script id="screen-vs" type="x-shader/x-vertex">
+        attribute vec2 position;
+        attribute vec2 uv;
+
+        varying vec2 UV;
+
+        void main() {
+            gl_Position = vec4(position, 1.0, 1.0);
+            UV = uv;
+        }
+    </script>
+    <script id="screen-fs" type="x-shader/x-fragment">
+        varying mediump vec2 UV;
+
+        uniform sampler2D screenTex;
+        //uniform sampler2D grilleTex;
+
+        const mediump float offset0 = 0.0;
+        const mediump float offset1 = 1.0;
+        const mediump float offset2 = 2.0;
+
+        const mediump float weight0 = 0.2957615963;
+        const mediump float weight1 = 0.2347461346;
+        const mediump float weight2 = 0.1173730673;
+
+        mediump float luma(mediump vec3 rgb) {
+            return rgb.g * 0.7152 + rgb.r * 0.2198;
+        }
+
+        mediump float calcExposure(mediump vec4 diffuse, mediump float exposure) {
+            mediump float luminance = (diffuse.r + diffuse.g + diffuse.b) / 3.0;
+
+            mediump float brightness = 1.0 - (exp((exposure) * -luma(diffuse.xyz)));
+
+            return brightness;
+        }
+
+        mediump vec4 blur() {
+            mediump vec4 colour = vec4(0.0, 0.0, 0.0, 0.0);
+            mediump vec4 baseColour = texture2D(screenTex, UV + vec2(0.0, offset0 / 720.0));
+            mediump float lumaBase = luma(baseColour.xyz);
+            mediump vec4 offsetColour1 = texture2D(screenTex, UV + vec2(0.0, offset1 / 720.0));
+            mediump vec4 offsetColour2 = texture2D(screenTex, UV + vec2(0.0, offset2 / 720.0));
+            mediump vec4 offsetColour3 = texture2D(screenTex, UV - vec2(0.0, offset1 / 720.0));
+            mediump vec4 offsetColour4 = texture2D(screenTex, UV - vec2(0.0, offset2 / 720.0));
+
+            colour += baseColour * weight0;
+            // colour += (abs(1.0 - (luma(offsetColour1.rgb) - lumaBase)) * (offsetColour1 - baseColour) + baseColour) * weight1;
+            // colour += (abs(1.0 - (luma(offsetColour2.rgb) - lumaBase)) * (offsetColour2 - baseColour) + baseColour) * weight2;
+            // colour += (abs(1.0 - (luma(offsetColour3.rgb) - lumaBase)) * (offsetColour3 - baseColour) + baseColour) * weight1;
+            // colour += (abs(1.0 - (luma(offsetColour4.rgb) - lumaBase)) * (offsetColour4 - baseColour) + baseColour) * weight2;
+            colour += ((offsetColour1 - baseColour) + baseColour) * weight1;
+            colour += ((offsetColour2 - baseColour) + baseColour) * weight2;
+            colour += ((offsetColour3 - baseColour) + baseColour) * weight1;
+            colour += ((offsetColour4 - baseColour) + baseColour) * weight2;
+            // colour += ((abs(1.0 - (luma(offsetColour1.rgb) - lumaBase)) + luma(offsetColour1.rgb)) / 2.0 * (offsetColour1 - baseColour) + baseColour) * weight1;
+            // colour += ((abs(1.0 - (luma(offsetColour2.rgb) - lumaBase)) + luma(offsetColour2.rgb)) / 2.0 * (offsetColour2 - baseColour) + baseColour) * weight2;
+            // colour += ((abs(1.0 - (luma(offsetColour3.rgb) - lumaBase)) + luma(offsetColour3.rgb)) / 2.0 * (offsetColour3 - baseColour) + baseColour) * weight1;
+            // colour += ((abs(1.0 - (luma(offsetColour4.rgb) - lumaBase)) + luma(offsetColour4.rgb)) / 2.0 * (offsetColour4 - baseColour) + baseColour) * weight2;
+            return colour;
+        }
+
+
+        void main() {
+            //mediump vec4 colour = blur();
+            mediump vec4 colour = texture2D(screenTex, UV);
+            //colour *= (texture2D(grilleTex, UV * vec2(960.0, 720.0) / 3.0));
+            gl_FragColor = colour;
+        }
+    </script>
+  </body>
+</html>

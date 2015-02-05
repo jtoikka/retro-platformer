@@ -1,0 +1,7 @@
+name: hookshot
+description: A sample web application
+dependencies:
+  box2d: any
+  browser: any
+  game_loop: any
+  vector_math: any
